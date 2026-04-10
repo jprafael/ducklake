@@ -52,6 +52,9 @@ DuckLakeDeleteFilter::DuckLakeDeleteFilter() : delete_data(make_shared_ptr<DuckL
 
 idx_t DuckLakeDeleteData::Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel,
                                  optional_idx snapshot_filter) const {
+	if (delete_all) {
+		return 0;
+	}
 	auto entry = std::lower_bound(deleted_rows.begin(), deleted_rows.end(), start_row_index);
 	if (entry == deleted_rows.end()) {
 		// no filter found for this entry
@@ -239,11 +242,19 @@ DeleteFileScanResult DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context
 
 void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeFileData &delete_file) {
 	auto scan_result = ScanDeleteFile(context, delete_file, optional_idx(), optional_idx());
+	delete_data->delete_all = false;
 	delete_data->deleted_rows = std::move(scan_result.deleted_rows);
 	delete_data->snapshot_ids = std::move(scan_result.snapshot_ids);
 }
 
 void DuckLakeDeleteFilter::Initialize(const DuckLakeInlinedDataDeletes &inlined_deletes) {
+	delete_data->delete_all = false;
+	if (inlined_deletes.delete_all) {
+		delete_data->delete_all = true;
+		delete_data->deleted_rows.clear();
+		delete_data->snapshot_ids.clear();
+		return;
+	}
 	D_ASSERT(std::is_sorted(delete_data->deleted_rows.begin(), delete_data->deleted_rows.end()));
 	auto mid_idx = delete_data->deleted_rows.size();
 	for (auto &idx : inlined_deletes.rows) {

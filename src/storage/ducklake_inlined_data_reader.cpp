@@ -131,23 +131,25 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 		if (deletion_filter) {
 			// map the deleted row-ids to the deleted ordinals to obtain the correct deleted rows
 			auto &filter = reinterpret_cast<DuckLakeDeleteFilter &>(*deletion_filter);
-			vector<idx_t> deleted_ordinals;
-			auto &deleted_row_ids = filter.delete_data->deleted_rows;
-			idx_t current_idx = 0;
-			idx_t ordinal_position = 0;
-			for (auto &chunk : data->data->Chunks()) {
-				auto &row_id_vector = chunk.data.back();
-				auto row_id_data = FlatVector::GetData<int64_t>(row_id_vector);
-				for (idx_t r = 0; r < chunk.size(); r++) {
-					auto row_id = NumericCast<idx_t>(row_id_data[r]);
-					if (current_idx < deleted_row_ids.size() && deleted_row_ids[current_idx] == row_id) {
-						deleted_ordinals.push_back(ordinal_position);
-						current_idx++;
+			if (!filter.delete_data->delete_all) {
+				vector<idx_t> deleted_ordinals;
+				auto &deleted_row_ids = filter.delete_data->deleted_rows;
+				idx_t current_idx = 0;
+				idx_t ordinal_position = 0;
+				for (auto &chunk : data->data->Chunks()) {
+					auto &row_id_vector = chunk.data.back();
+					auto row_id_data = FlatVector::GetData<int64_t>(row_id_vector);
+					for (idx_t r = 0; r < chunk.size(); r++) {
+						auto row_id = NumericCast<idx_t>(row_id_data[r]);
+						if (current_idx < deleted_row_ids.size() && deleted_row_ids[current_idx] == row_id) {
+							deleted_ordinals.push_back(ordinal_position);
+							current_idx++;
+						}
+						ordinal_position++;
 					}
-					ordinal_position++;
 				}
+				filter.delete_data->deleted_rows = std::move(deleted_ordinals);
 			}
-			filter.delete_data->deleted_rows = std::move(deleted_ordinals);
 		}
 		data->data->InitializeScan(state);
 	} else {

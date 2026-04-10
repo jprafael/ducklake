@@ -2431,6 +2431,15 @@ string DuckLakeMetadataManager::WriteNewInlinedDeletes(const vector<DuckLakeDele
 		return batch_queries;
 	}
 	for (auto &entry : new_deletes) {
+		if (entry.delete_all) {
+			batch_queries += StringUtil::Format(R"(
+UPDATE {METADATA_CATALOG}.%s
+SET end_snapshot = {SNAPSHOT_ID}
+WHERE end_snapshot IS NULL AND begin_snapshot != {SNAPSHOT_ID};
+)",
+			                                    entry.table_name);
+			continue;
+		}
 		// get a list of all deleted row-ids for this table
 		string row_id_list;
 		for (auto &deleted_id : entry.deleted_row_ids) {

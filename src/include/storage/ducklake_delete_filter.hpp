@@ -16,6 +16,7 @@ namespace duckdb {
 struct DuckLakeDeleteData {
 	vector<idx_t> deleted_rows;
 	vector<idx_t> snapshot_ids;
+	bool delete_all = false;
 	//! For deletion scans: mapping from row_id to snapshot_id for rows that were deleted
 	//! If scan_snapshot_map_uses_row_id is true, this is indexed by global row_id (from _ducklake_internal_row_id)
 	//! Otherwise, it's indexed by file position

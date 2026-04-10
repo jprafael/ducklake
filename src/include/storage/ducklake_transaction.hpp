@@ -69,8 +69,10 @@ public:
 	void DropTransactionLocalFile(ClientContext &context, TableIndex table_id, const string &path);
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AppendInlinedData(ClientContext &context, TableIndex table_id, unique_ptr<DuckLakeInlinedData> new_data);
-	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
+	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes,
+	                          bool delete_all = false);
 	void DeleteFromLocalInlinedData(ClientContext &context, TableIndex table_id, set<idx_t> new_deletes);
+	void TruncateLocalInlinedData(TableIndex table_id);
 	void AddColumnToLocalInlinedData(ClientContext &context, TableIndex table_id, const LogicalType &new_column_type,
 	                                 FieldIndex new_field_index, const Value &default_value);
 	void RemoveColumnFromLocalInlinedData(ClientContext &context, TableIndex table_id,
@@ -204,8 +206,10 @@ public:
 	NewNameMapInfo GetNewNameMaps(DuckLakeCommitState &commit_state);
 
 	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
-	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
+	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes,
+	                          bool delete_all = false);
 	void DeleteFromLocalInlinedData(TableIndex table_id, set<idx_t> new_deletes);
+	void TruncateLocalInlinedData(TableIndex table_id);
 	void AddColumnToLocalInlinedData(TableIndex table_id, const LogicalType &new_column_type,
 	                                 FieldIndex new_field_index, const Value &default_value = Value());
 	void RemoveColumnFromLocalInlinedData(TableIndex table_id, LogicalIndex removed_column_index,

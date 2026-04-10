@@ -227,12 +227,24 @@ void LocalTableChanges::AppendInlinedData(ClientContext &context, TableIndex tab
 	}
 }
 
-void LocalTableChanges::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes) {
+void LocalTableChanges::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes,
+                                             bool delete_all) {
+	if (new_deletes.empty() && !delete_all) {
+		return;
+	}
 	lock_guard<mutex> guard(lock);
 	auto &table_changes = changes[table_id];
 	auto &table_deletes = table_changes.new_inlined_data_deletes;
 	auto entry = table_deletes.find(table_name);
 	if (entry != table_deletes.end()) {
+		if (delete_all) {
+			entry->second->delete_all = true;
+			entry->second->rows.clear();
+			return;
+		}
+		if (entry->second->delete_all) {
+			return;
+		}
 		// merge deletes
 		auto &existing_rows = entry->second->rows;
 		for (auto &row_idx : new_deletes) {
@@ -240,6 +252,7 @@ void LocalTableChanges::AddNewInlinedDeletes(TableIndex table_id, const string &
 		}
 	} else {
 		auto new_data = make_uniq<DuckLakeInlinedDataDeletes>();
+		new_data->delete_all = delete_all;
 		new_data->rows = std::move(new_deletes);
 		table_deletes.emplace(table_name, std::move(new_data));
 	}
@@ -288,6 +301,22 @@ void LocalTableChanges::DeleteFromLocalInlinedData(ClientContext &context, Table
 	// override the existing collection and row_ids
 	inlined_data.data = std::move(new_data);
 	inlined_data.row_ids = std::move(new_row_ids);
+}
+
+void LocalTableChanges::TruncateLocalInlinedData(TableIndex table_id) {
+	lock_guard<mutex> guard(lock);
+	auto entry = changes.find(table_id);
+	if (entry == changes.end()) {
+		throw InternalException("TruncateLocalInlinedData called but no transaction-local data exists for table");
+	}
+	auto &table_changes = entry->second;
+	if (!table_changes.new_inlined_data) {
+		throw InternalException("TruncateLocalInlinedData called but no inlined data exists");
+	}
+	table_changes.new_inlined_data.reset();
+	if (table_changes.IsEmpty()) {
+		changes.erase(entry);
+	}
 }
 
 static void RemoveFieldStats(map<FieldIndex, DuckLakeColumnStats> &column_stats, const DuckLakeFieldId &field_id) {
@@ -2174,8 +2203,11 @@ DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeCommitState &commit_state) con
 			DuckLakeDeletedInlinedDataInfo info;
 			info.table_id = table_id;
 			info.table_name = delete_entry.first;
-			for (auto &row_id : delete_entry.second->rows) {
-				info.deleted_row_ids.push_back(row_id);
+			info.delete_all = delete_entry.second->delete_all;
+			if (!info.delete_all) {
+				for (auto &row_id : delete_entry.second->rows) {
+					info.deleted_row_ids.push_back(row_id);
+				}
 			}
 			result.push_back(std::move(info));
 		}
@@ -2700,16 +2732,18 @@ void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<Duck
 	local_changes.AppendInlinedData(*context_ref, table_id, std::move(new_data));
 }
 
-void DuckLakeTransaction::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes) {
-	if (new_deletes.empty()) {
-		return;
-	}
-	local_changes.AddNewInlinedDeletes(table_id, table_name, std::move(new_deletes));
+void DuckLakeTransaction::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes,
+                                               bool delete_all) {
+	local_changes.AddNewInlinedDeletes(table_id, table_name, std::move(new_deletes), delete_all);
 }
 
 void DuckLakeTransaction::DeleteFromLocalInlinedData(TableIndex table_id, set<idx_t> new_deletes) {
 	auto context_ref = context.lock();
 	local_changes.DeleteFromLocalInlinedData(*context_ref, table_id, std::move(new_deletes));
+}
+
+void DuckLakeTransaction::TruncateLocalInlinedData(TableIndex table_id) {
+	local_changes.TruncateLocalInlinedData(table_id);
 }
 
 void DuckLakeTransaction::AddColumnToLocalInlinedData(TableIndex table_id, const LogicalType &new_column_type,
