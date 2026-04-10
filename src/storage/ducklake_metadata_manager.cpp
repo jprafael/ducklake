@@ -1795,7 +1795,7 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	string deletion_threshold_clause;
 	if (type == CompactionType::REWRITE_DELETES) {
 		// Filter current data files in SQL, then apply the delete threshold in C++ so we can include
-		// metadata-only inlined file deletions as rewrite candidates.
+		// metadata-only inlined file deletions as rewrite candidates
 		deletion_threshold_clause = " AND data.end_snapshot is null";
 	}
 	// Add file size filtering for MERGE_ADJACENT_TABLES compaction
@@ -1900,7 +1900,8 @@ ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_sn
 		delete_file.data = ReadDeleteFile(table, row, col_idx, IsEncrypted());
 		file_entry.delete_files.push_back(std::move(delete_file));
 	}
-	// Load inlined deletions for active files so rewrite compaction can treat them the same as delete files.
+
+	// Load inlined deletions for active files so rewrite compaction can treat them the same as delete files
 	auto inlined_deletions = ReadInlinedFileDeletions(table_id, snapshot);
 	for (auto &file : files) {
 		auto entry = inlined_deletions.find(file.file.id.index);
@@ -2430,6 +2431,15 @@ string DuckLakeMetadataManager::WriteNewInlinedDeletes(const vector<DuckLakeDele
 		return batch_queries;
 	}
 	for (auto &entry : new_deletes) {
+		if (entry.delete_all) {
+			batch_queries += StringUtil::Format(R"(
+UPDATE {METADATA_CATALOG}.%s
+SET end_snapshot = {SNAPSHOT_ID}
+WHERE end_snapshot IS NULL AND begin_snapshot != {SNAPSHOT_ID};
+)",
+			                                    entry.table_name);
+			continue;
+		}
 		// get a list of all deleted row-ids for this table
 		string row_id_list;
 		for (auto &deleted_id : entry.deleted_row_ids) {
@@ -4409,8 +4419,8 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 
 void DuckLakeMetadataManager::DeleteInlinedData(const DuckLakeInlinedTableInfo &inlined_table) {
 	auto result = transaction.Query(StringUtil::Format(R"(
-			DELETE FROM {METADATA_CATALOG}.%s
-	)",
+		DELETE FROM {METADATA_CATALOG}.%s
+)",
 	                                                   SQLIdentifier(inlined_table.table_name)));
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to delete inlined data in DuckLake from table " +
@@ -4440,18 +4450,6 @@ DuckLakeMetadataManager::GenerateDeleteFlushedInlinedData(const vector<FlushedIn
 	return result;
 }
 
-void DuckLakeMetadataManager::MarkInlinedDataDeleted(DuckLakeSnapshot snapshot, const string &inlined_table_name) {
-	auto result = transaction.Query(snapshot, StringUtil::Format(R"(
-		UPDATE {METADATA_CATALOG}.%s
-		SET end_snapshot = {SNAPSHOT_ID}
-		WHERE end_snapshot IS NULL AND begin_snapshot <= {SNAPSHOT_ID}
-	)",
-	                                                     SQLIdentifier(inlined_table_name)));
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to mark inlined data as deleted in DuckLake from table " +
-		                               inlined_table_name + ": ");
-	}
-}
 string DuckLakeMetadataManager::InsertNewSchema(const DuckLakeSnapshot &snapshot, const set<TableIndex> &table_ids) {
 	if (table_ids.empty()) {
 		return {};

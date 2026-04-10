@@ -31,6 +31,7 @@ struct DuckLakeInlinedData {
 
 struct DuckLakeInlinedDataDeletes {
 	set<idx_t> rows;
+	bool delete_all = false;
 };
 
 //! Stores inlined file deletions for a table

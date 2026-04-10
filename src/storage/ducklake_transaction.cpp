@@ -227,12 +227,24 @@ void LocalTableChanges::AppendInlinedData(ClientContext &context, TableIndex tab
 	}
 }
 
-void LocalTableChanges::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes) {
+void LocalTableChanges::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes,
+                                             bool delete_all) {
+	if (new_deletes.empty() && !delete_all) {
+		return;
+	}
 	lock_guard<mutex> guard(lock);
 	auto &table_changes = changes[table_id];
 	auto &table_deletes = table_changes.new_inlined_data_deletes;
 	auto entry = table_deletes.find(table_name);
 	if (entry != table_deletes.end()) {
+		if (delete_all) {
+			entry->second->delete_all = true;
+			entry->second->rows.clear();
+			return;
+		}
+		if (entry->second->delete_all) {
+			return;
+		}
 		// merge deletes
 		auto &existing_rows = entry->second->rows;
 		for (auto &row_idx : new_deletes) {
@@ -240,6 +252,7 @@ void LocalTableChanges::AddNewInlinedDeletes(TableIndex table_id, const string &
 		}
 	} else {
 		auto new_data = make_uniq<DuckLakeInlinedDataDeletes>();
+		new_data->delete_all = delete_all;
 		new_data->rows = std::move(new_deletes);
 		table_deletes.emplace(table_name, std::move(new_data));
 	}
@@ -2190,8 +2203,11 @@ DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeCommitState &commit_state) con
 			DuckLakeDeletedInlinedDataInfo info;
 			info.table_id = table_id;
 			info.table_name = delete_entry.first;
-			for (auto &row_id : delete_entry.second->rows) {
-				info.deleted_row_ids.push_back(row_id);
+			info.delete_all = delete_entry.second->delete_all;
+			if (!info.delete_all) {
+				for (auto &row_id : delete_entry.second->rows) {
+					info.deleted_row_ids.push_back(row_id);
+				}
 			}
 			result.push_back(std::move(info));
 		}
@@ -2576,11 +2592,6 @@ void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &sn
 	metadata_manager.DeleteSnapshots(snapshots);
 }
 
-void DuckLakeTransaction::MarkInlinedDataDeleted(const string &inlined_table_name) {
-	auto &metadata_manager = GetMetadataManager();
-	metadata_manager.MarkInlinedDataDeleted(GetSnapshot(), inlined_table_name);
-}
-
 void DuckLakeTransaction::DeleteInlinedData(const DuckLakeInlinedTableInfo &inlined_table) {
 	auto &metadata_manager = GetMetadataManager();
 	metadata_manager.DeleteInlinedData(inlined_table);
@@ -2721,11 +2732,9 @@ void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<Duck
 	local_changes.AppendInlinedData(*context_ref, table_id, std::move(new_data));
 }
 
-void DuckLakeTransaction::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes) {
-	if (new_deletes.empty()) {
-		return;
-	}
-	local_changes.AddNewInlinedDeletes(table_id, table_name, std::move(new_deletes));
+void DuckLakeTransaction::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes,
+                                               bool delete_all) {
+	local_changes.AddNewInlinedDeletes(table_id, table_name, std::move(new_deletes), delete_all);
 }
 
 void DuckLakeTransaction::DeleteFromLocalInlinedData(TableIndex table_id, set<idx_t> new_deletes) {

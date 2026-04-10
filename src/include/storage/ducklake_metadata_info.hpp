@@ -172,6 +172,7 @@ struct DuckLakeDeletedInlinedDataInfo {
 	TableIndex table_id;
 	string table_name;
 	vector<idx_t> deleted_row_ids;
+	bool delete_all = false;
 };
 
 //! Info for all inlined file deletions for a single table
