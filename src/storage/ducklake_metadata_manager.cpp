@@ -1726,7 +1726,7 @@ DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeTableEntry &table, Duc
 
 	// Add base query
 	query += StringUtil::Format(R"(
-SELECT data.data_file_id, del.delete_file_id, data.record_count, COALESCE(del.delete_count, 0), %s
+SELECT data.data_file_id, del.delete_file_id, data.record_count, %s
 FROM {METADATA_CATALOG}.ducklake_data_file data
 LEFT JOIN (
 	SELECT *
@@ -1755,8 +1755,7 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 			file_entry.delete_file_id = DataFileIndex(row.GetValue<idx_t>(1));
 		}
 		file_entry.row_count = row.GetValue<idx_t>(2);
-		file_entry.delete_count = row.GetValue<idx_t>(3);
-		idx_t col_idx = 4;
+		idx_t col_idx = 3;
 		file_entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		if (!row.IsNull(col_idx)) {
 			file_entry.row_id_start = row.GetValue<idx_t>(col_idx);
@@ -1796,7 +1795,7 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	string deletion_threshold_clause;
 	if (type == CompactionType::REWRITE_DELETES) {
 		// Filter current data files in SQL, then apply the delete threshold in C++ so we can include
-		// metadata-only inlined file deletions as rewrite candidates
+		// metadata-only inlined file deletions as rewrite candidates.
 		deletion_threshold_clause = " AND data.end_snapshot is null";
 	}
 	// Add file size filtering for MERGE_ADJACENT_TABLES compaction
@@ -1901,8 +1900,7 @@ ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_sn
 		delete_file.data = ReadDeleteFile(table, row, col_idx, IsEncrypted());
 		file_entry.delete_files.push_back(std::move(delete_file));
 	}
-
-	// Load inlined deletions for active files so rewrite compaction can treat them the same as delete files
+	// Load inlined deletions for active files so rewrite compaction can treat them the same as delete files.
 	auto inlined_deletions = ReadInlinedFileDeletions(table_id, snapshot);
 	for (auto &file : files) {
 		auto entry = inlined_deletions.find(file.file.id.index);
